@@ -1,8 +1,8 @@
 from distutils.core import setup, Extension
 
-blockcipher = Extension('blockcipher', sources = ['blockcipher.c'])
+module = Extension('blockcipher', sources = ['blockcipher.c'])
 
-setup (	name = 'BlockCipher',
-		version = '1.0',
-		description = 'testing blockcipher',
-		ext_modules = [blockcipher])
+setup(name = 'blockcipher',
+	  version = '0.2',
+	  description = 'Package to implement a block cipher',
+	  ext_modules = [module])

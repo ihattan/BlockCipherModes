@@ -12,6 +12,8 @@
 #define KEY_SIZE   16 // key size in bytes
 #define STATE_SIZE 16 // state size in bytes
 #define ROUNDS     11 // 11 rounds correlate to the 16-byte (128-bit) key
+#define ENCRYPT    0
+#define DECRYPT    1
 
 /**
  * All lookup tables from https://cryptography.fandom.com/wiki/Rijndael_mix_columns
@@ -169,7 +171,6 @@ void pretty_print(unsigned char *in, int bytes) {
 		in[i+0x0], in[i+0x1], in[i+0x2], in[i+0x3], in[i+0x4], in[i+0x5], in[i+0x6], in[i+0x7],
 		in[i+0x8], in[i+0x9], in[i+0xa], in[i+0xb], in[i+0xc], in[i+0xd], in[i+0xe], in[i+0xf]);
 	}
-		return;
 }
 
 void pretty_print_decimal(unsigned char *in, int bytes) {
@@ -178,7 +179,6 @@ void pretty_print_decimal(unsigned char *in, int bytes) {
 		in[i+0x0], in[i+0x1], in[i+0x2], in[i+0x3], in[i+0x4], in[i+0x5], in[i+0x6], in[i+0x7],
 		in[i+0x8], in[i+0x9], in[i+0xa], in[i+0xb], in[i+0xc], in[i+0xd], in[i+0xe], in[i+0xf]);
 	}
-	return;
 }
 
 /**
@@ -189,8 +189,6 @@ static void xor(unsigned char *a, unsigned char *b, unsigned char* res) {
 	res[1] = a[1] ^ b[1];
 	res[2] = a[2] ^ b[2];
 	res[3] = a[3] ^ b[3];
-
-	return;
 }
 
 static void g(unsigned char *in, unsigned char *res, int r) {
@@ -208,8 +206,6 @@ static void g(unsigned char *in, unsigned char *res, int r) {
 
 	// xor with rcon
 	res[0] ^= rcon[r];
-
-	return;
 }
 
 static void generate_round_keys(unsigned char *key, unsigned char *round_keys) {
@@ -249,8 +245,9 @@ static void generate_round_keys(unsigned char *key, unsigned char *round_keys) {
 	unsigned char g_r[4];
 
 	// advance until all 11 rounds filled,
-	// ROUNDS * KEY_SIZE/4 again because words, not bytes
-	while (i <= ROUNDS * KEY_SIZE/4) {
+	// ROUNDS - 1 because we generate the NEXT round using the current round
+	// KEY_SIZE/4 again because words, not bytes
+	while (i <= (ROUNDS - 1) * KEY_SIZE/4) {
 		// copy previous 4 words into current
 		w_0[0] = round_keys[((i-4)*4)+0];
 		w_1[0] = round_keys[((i-4)*4)+1];
@@ -271,6 +268,26 @@ static void generate_round_keys(unsigned char *key, unsigned char *round_keys) {
 		w_1[3] = round_keys[((i-1)*4)+1];
 		w_2[3] = round_keys[((i-1)*4)+2];
 		w_3[3] = round_keys[((i-1)*4)+3];
+
+		round_keys[((i+0)*4)+0] = w_0[0];
+		round_keys[((i+0)*4)+1] = w_1[0];
+		round_keys[((i+0)*4)+2] = w_2[0];
+		round_keys[((i+0)*4)+3] = w_3[0];
+
+		round_keys[((i+1)*4)+0] = w_0[1];
+		round_keys[((i+1)*4)+1] = w_1[1];
+		round_keys[((i+1)*4)+2] = w_2[1];
+		round_keys[((i+1)*4)+3] = w_3[1];
+
+		round_keys[((i+2)*4)+0] = w_0[2];
+		round_keys[((i+2)*4)+1] = w_1[2];
+		round_keys[((i+2)*4)+2] = w_2[2];
+		round_keys[((i+2)*4)+3] = w_3[2];
+
+		round_keys[((i+3)*4)+0] = w_0[3];
+		round_keys[((i+3)*4)+1] = w_1[3];
+		round_keys[((i+3)*4)+2] = w_2[3];
+		round_keys[((i+3)*4)+3] = w_3[3];
 
 		// (i/4) because g() requires the current round,
 		// i corresponds to the current word, four words per round
@@ -304,7 +321,6 @@ static void generate_round_keys(unsigned char *key, unsigned char *round_keys) {
 		i += 4;
 	}
 
-	return;
 }
 
 static void add_round_key(unsigned char *state, unsigned char *round_keys, int round) {
@@ -314,21 +330,18 @@ static void add_round_key(unsigned char *state, unsigned char *round_keys, int r
 	for (int i = 0; i < STATE_SIZE; i++) {
 		state[i] ^= round_keys[round_offset + i];
 	}
-	return;
 }
 
 static void sub_bytes(unsigned char *state) {
 	for (int i = 0; i < STATE_SIZE; i++) {
 		state[i] = s[(state[i]&0xf0) + (state[i]&0xf)];
 	}
-	return;
 }
 
 static void inv_sub_bytes(unsigned char *state) {
 	for (int i = 0; i < STATE_SIZE; i++) {
 		state[i] = inv_s[(state[i]&0xf0) + (state[i]&0xf)];
 	}
-	return;
 }
 
 static void shift_rows(unsigned char *state) {
@@ -352,8 +365,6 @@ static void shift_rows(unsigned char *state) {
 	state[15] = state[14];
 	state[14] = state[13];
 	state[13] = swap;
-
-	return;
 }
 
 static void inv_shift_rows(unsigned char *state) {
@@ -377,15 +388,11 @@ static void inv_shift_rows(unsigned char *state) {
 	state[13] = state[14];
 	state[14] = state[15];
 	state[15] = swap;
-
-	return;
 }
 
 // mix columns algorithm from https://cryptography.fandom.com/wiki/Rijndael_mix_columns
 static void mix_columns(unsigned char *state) {
 	unsigned char a[4];
-	unsigned char b[4];
-	unsigned char h;
 
 	int current_column = 0;
 	while (current_column < 4) { // 4 columns in the state
@@ -401,15 +408,11 @@ static void mix_columns(unsigned char *state) {
 
 		current_column += 1;
 	}
-
-	return;
 }
 
 // inv_mix_columns algorithm from https://cryptography.fandom.com/wiki/Rijndael_mix_columns
 static void inv_mix_columns(unsigned char *state) {
 	unsigned char a[4];
-	unsigned char b[4];
-	unsigned char h;
 
 	int current_column = 0;
 	while (current_column < 4) { // 4 columns in the state
@@ -425,16 +428,9 @@ static void inv_mix_columns(unsigned char *state) {
 
 		current_column += 1;
 	}
-
-	return;
 }
 
 static void encrypt_block_cipher(unsigned char *key, unsigned char *input, unsigned char *state) {
-/**
-	printf("cenryption input...\n");
-	pretty_print(input, STATE_SIZE);
-	printf("...................\n");
-*/
 	unsigned char round_keys[ROUNDS * KEY_SIZE];
 	generate_round_keys(key, round_keys);
 
@@ -463,20 +459,9 @@ static void encrypt_block_cipher(unsigned char *key, unsigned char *input, unsig
 	sub_bytes(state);
 	shift_rows(state);
 	add_round_key(state, round_keys, current_round);
-/**
-	printf("encrypted..........\n");
-	pretty_print(state, STATE_SIZE);
-	printf("...................\n");
-*/
-	return;
 }
 
 static void decrypt_block_cipher(unsigned char *key, unsigned char *input, unsigned char *state) {
-/**
-	printf("decryption input...\n");
-	pretty_print(input, STATE_SIZE);
-	printf("...................\n");
-*/
 	unsigned char round_keys[ROUNDS * KEY_SIZE];
 	generate_round_keys(key, round_keys);
 
@@ -485,7 +470,7 @@ static void decrypt_block_cipher(unsigned char *key, unsigned char *input, unsig
 		state[i] = input[i];
 	}
 
-	int current_round = ROUNDS - 1;
+	int current_round = ROUNDS-1;
 
 	// round 0 == add_round_key()
 	add_round_key(state, round_keys, current_round);
@@ -503,60 +488,57 @@ static void decrypt_block_cipher(unsigned char *key, unsigned char *input, unsig
 	inv_shift_rows(state);
 	inv_sub_bytes(state);
 	add_round_key(state, round_keys, current_round);
-/**
-	printf("decrypted..........\n");
-	pretty_print(state, STATE_SIZE);
-	printf("...................\n");
-*/
-	return;
 }
 
-void block_cipher(unsigned char *key, unsigned char* input, unsigned char *output, char mode) {
-	mode = tolower(mode);
+static PyObject* blockcipher(PyObject* self, PyObject* args) {
+	PyObject* key_list;
+	PyObject* in_list;
+	int mode_in;
 
-	if (mode == 'e') encrypt_block_cipher(key, input, output);
-	else if (mode == 'd') decrypt_block_cipher(key, input, output);
-	else printf("INVALID ENCRYPT/DECRYPT MODE\n");
-
-	return;
-}
-
-static PyObject *blockcipher(PyObject *self, PyObject *args) {
-	PyObject *key_list;
-	PyObject *in_list;
-	char mode;
-
-	if (!PyArg_ParseTuple(args, "OOc", &key_list, &in_list, &mode)) {
+	if (!PyArg_ParseTuple(args, "OOi", &key_list, &in_list, &mode_in)) {
+		printf("fail\n");
 		return NULL;
 	}
 
 	if (!PyList_CheckExact(key_list) || !PyList_CheckExact(in_list)) {
-		printf("The key and/or the input are not list type\n");
+		printf("blockcipher handed something not a list\n");
 		return NULL;
 	}
 
-	mode = tolower(mode);
-	if (mode != 'e' || mode != 'd') {
+	int in_size = (int)PyList_Size(in_list);
+
+	if (in_size != STATE_SIZE) {
+		printf("blockcipher handed list with invalid size\n");
 		return NULL;
 	}
 
-	int key_size = PyListSize(key_list);
-	int in_size  = PyListSize(in_list);
+	unsigned char key[KEY_SIZE];
+	unsigned char input[STATE_SIZE];
+	unsigned char output[STATE_SIZE];
 
-	if (in_size != 16) {
-		printf("incorrect input size, must be 16 bytes\n");
+	for (int i = 0; i < KEY_SIZE; i++) {
+		key[i] = (unsigned char)PyLong_AsLong(PyList_GetItem(key_list, i));
+	}
+
+	for (int i = 0; i < STATE_SIZE; i++) {
+		input[i] = (unsigned char)PyLong_AsLong(PyList_GetItem(in_list, i));
+	}
+
+	if (mode_in == ENCRYPT) {
+		encrypt_block_cipher(key, input, output);
+	} else if (mode_in == DECRYPT) {
+		decrypt_block_cipher(key, input, output);
+	} else {
+		printf("INVALID ENCRYPT/DECRYPT MODE\n");
 		return NULL;
 	}
 
-	unsigned char key[key_size];
-
-	for (int i = 0; i < in_size; i++) {
-		key[i] = PyList_GetItem(key_list, i);
+	PyObject* out_list = PyList_New(STATE_SIZE);
+	for (int i = 0; i < STATE_SIZE; i++) {
+		PyList_SetItem(out_list, i, PyLong_FromLong((long)output[i]));
 	}
 
-	pretty_print(key, 16);
-
-	PY_RETURN_NONE;
+	return out_list;
 }
 
 static PyMethodDef blockcipher_funcs[] = {
